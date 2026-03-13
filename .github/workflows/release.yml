@@ -50,6 +50,41 @@ jobs:
           git tag "v${{ steps.bump.outputs.version }}"
           git push origin "v${{ steps.bump.outputs.version }}"
 
+      - name: Pick release name
+        id: name
+        run: |
+          names=(
+            "Adventurous Aardvark"
+            "Brave Bunny"
+            "Curious Cat"
+            "Dreamy Dragon"
+            "Enchanted Elephant"
+            "Friendly Firefly"
+            "Gentle Giraffe"
+            "Happy Hedgehog"
+            "Imaginative Iguana"
+            "Jolly Jellyfish"
+            "Kind Koala"
+            "Luminous Llama"
+            "Magical Moonbeam"
+            "Noble Narwhal"
+            "Optimistic Owl"
+            "Playful Penguin"
+            "Quiet Quokka"
+            "Radiant Rabbit"
+            "Sleepy Starfish"
+            "Tender Turtle"
+            "Upbeat Unicorn"
+            "Valiant Vole"
+            "Whimsical Whale"
+            "Xtra Xenops"
+            "Yawning Yak"
+            "Zany Zebra"
+          )
+          patch=$(echo "${{ steps.bump.outputs.version }}" | cut -d. -f3)
+          index=$(( patch % ${#names[@]} ))
+          echo "name=${names[$index]}" >> "$GITHUB_OUTPUT"
+
       - name: Create release zip
         run: |
           cd custom_components/dial_a_story
@@ -59,5 +94,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: "v${{ steps.bump.outputs.version }}"
+          name: "v${{ steps.bump.outputs.version }} - ${{ steps.name.outputs.name }}"
           files: dial-a-story.zip
           generate_release_notes: true
