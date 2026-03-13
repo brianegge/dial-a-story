@@ -3,7 +3,7 @@
   "name": "Dial-a-Story",
   "codeowners": ["@brianegge"],
   "config_flow": false,
-  "dependencies": [],
+  "dependencies": ["webhook"],
   "documentation": "https://github.com/brianegge/dial-a-story",
   "iot_class": "cloud_push",
   "issue_tracker": "https://github.com/brianegge/dial-a-story/issues",
