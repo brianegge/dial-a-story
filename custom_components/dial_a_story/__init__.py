@@ -21,7 +21,6 @@ _LOGGER = logging.getLogger(__name__)
 DOMAIN = "dial_a_story"
 WEBHOOK_ID = "dial_a_story"
 CONF_TELNYX_API_KEY = "telnyx_api_key"
-CONF_OPENAI_API_KEY = "openai_api_key"
 CONF_STORY_LENGTH = "story_length"
 CONF_VOICE_PREFERENCE = "voice_preference"
 
@@ -30,7 +29,6 @@ CONFIG_SCHEMA = vol.Schema(
         DOMAIN: vol.Schema(
             {
                 vol.Required(CONF_TELNYX_API_KEY): cv.string,
-                vol.Optional(CONF_OPENAI_API_KEY): cv.string,
                 vol.Optional(CONF_STORY_LENGTH, default="medium"): vol.In(
                     ["short", "medium", "long"]
                 ),
@@ -88,7 +86,6 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 
     hass.data[DOMAIN] = {
         "telnyx_api_key": conf.get(CONF_TELNYX_API_KEY),
-        "openai_api_key": conf.get(CONF_OPENAI_API_KEY),
         "story_length": conf.get(CONF_STORY_LENGTH, "medium"),
         "voice_preference": conf.get(CONF_VOICE_PREFERENCE, "female"),
         "active_calls": {},  # Track active calls and state
@@ -249,55 +246,44 @@ class _CallHandler:
         await self._speak_on_call(call_control_id, story, pause=500)
 
     async def _generate_story(self) -> str:
-        """Generate a story using OpenAI or use backup."""
-        openai_key = self.hass.data[DOMAIN].get("openai_api_key")
-
-        if openai_key:
-            try:
-                return await self._generate_story_openai()
-            except Exception as e:
-                _LOGGER.warning(f"OpenAI story generation failed: {e}, using backup")
+        """Generate a story using HA ai_task service or use backup."""
+        try:
+            return await self._generate_story_ai_task()
+        except Exception as e:
+            _LOGGER.warning(f"AI task story generation failed: {e}, using backup")
 
         return random.choice(BACKUP_STORIES).strip()
 
-    async def _generate_story_openai(self) -> str:
-        """Generate story using OpenAI API."""
-        session = async_get_clientsession(self.hass)
-        openai_key = self.hass.data[DOMAIN]["openai_api_key"]
-
+    async def _generate_story_ai_task(self) -> str:
+        """Generate story using Home Assistant's ai_task service."""
         story_length = self.hass.data[DOMAIN]["story_length"]
         word_counts = {"short": 200, "medium": 350, "long": 500}
         max_words = word_counts[story_length]
 
         theme = random.choice(STORY_THEMES)
 
-        system_prompt = """You are a gentle, warm storyteller creating bedtime stories
-        for children aged 2-5 years old. Use simple vocabulary, include repetition and
-        rhythm, focus on comforting happy themes with no scary elements. Always end with
-        'Sweet dreams, little one!'"""
-
-        user_prompt = f"""Create a soothing {max_words}-word bedtime story about {theme}.
-        Use simple words, soft sounds, and a happy ending where everyone is safe."""
-
-        response = await session.post(
-            "https://api.openai.com/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {openai_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": "gpt-4o-mini",
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                "max_tokens": max_words * 2,
-                "temperature": 0.8,
-            },
+        instructions = (
+            f"You are a gentle, warm storyteller creating bedtime stories "
+            f"for children aged 2-5 years old. "
+            f"Create a soothing {max_words}-word bedtime story about {theme}. "
+            f"Use simple vocabulary, include repetition and rhythm, "
+            f"focus on comforting happy themes with no scary elements. "
+            f"Use simple words, soft sounds, and a happy ending where everyone is safe. "
+            f"Always end with 'Sweet dreams, little one!' "
+            f"Return only the story text, no titles or headers."
         )
 
-        result = await response.json()
-        story = result["choices"][0]["message"]["content"]
+        result = await self.hass.services.async_call(
+            "ai_task",
+            "generate_data",
+            {"task_name": "generate_story", "instructions": instructions},
+            blocking=True,
+            return_response=True,
+        )
+
+        story = result.get("data", "")
+        if not story:
+            raise ValueError("ai_task returned empty response")
 
         return story.strip()
 
