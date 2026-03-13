@@ -1,0 +1,12 @@
+{
+  "domain": "dial_a_story",
+  "name": "Dial-a-Story",
+  "codeowners": ["@brianegge"],
+  "config_flow": false,
+  "dependencies": [],
+  "documentation": "https://github.com/brianegge/dial-a-story",
+  "iot_class": "cloud_push",
+  "issue_tracker": "https://github.com/brianegge/dial-a-story/issues",
+  "requirements": [],
+  "version": "1.0.0"
+}
