@@ -6,8 +6,10 @@ HACS-compatible integration for creating a phone number your kids can call
 to hear AI-generated bedtime stories.
 """
 import asyncio
+import hashlib
 import logging
 import random
+import time
 from typing import Any, Dict
 
 import voluptuous as vol
@@ -15,20 +17,30 @@ from homeassistant.components import webhook
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.network import get_url, NoURLAvailableError
 
 _LOGGER = logging.getLogger(__name__)
 
 DOMAIN = "dial_a_story"
 WEBHOOK_ID = "dial_a_story"
+WEBHOOK_ID_AUDIO = "dial_a_story_audio"
 CONF_TELNYX_API_KEY = "telnyx_api_key"
+CONF_ELEVENLABS_API_KEY = "elevenlabs_api_key"
 CONF_STORY_LENGTH = "story_length"
 CONF_VOICE_PREFERENCE = "voice_preference"
+
+# ElevenLabs voice IDs
+ELEVENLABS_VOICES = {
+    "female": "EXAVITQu4vr4xnSDxMaL",  # Sarah - soft, warm
+    "male": "pNInz6obpgDQGcFmaJgB",  # Adam - deep, narration
+}
 
 CONFIG_SCHEMA = vol.Schema(
     {
         DOMAIN: vol.Schema(
             {
                 vol.Required(CONF_TELNYX_API_KEY): cv.string,
+                vol.Optional(CONF_ELEVENLABS_API_KEY): cv.string,
                 vol.Optional(CONF_STORY_LENGTH, default="medium"): vol.In(
                     ["short", "medium", "long"]
                 ),
@@ -86,9 +98,11 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 
     hass.data[DOMAIN] = {
         "telnyx_api_key": conf.get(CONF_TELNYX_API_KEY),
+        "elevenlabs_api_key": conf.get(CONF_ELEVENLABS_API_KEY),
         "story_length": conf.get(CONF_STORY_LENGTH, "medium"),
         "voice_preference": conf.get(CONF_VOICE_PREFERENCE, "female"),
-        "active_calls": {},  # Track active calls and state
+        "active_calls": {},
+        "audio_cache": {},  # hash -> audio bytes
     }
 
     webhook.async_register(
@@ -97,8 +111,32 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         local_only=False,
     )
 
+    webhook.async_register(
+        hass, DOMAIN, "Dial-a-Story Audio", WEBHOOK_ID_AUDIO, handle_audio_webhook,
+        allowed_methods=["GET"],
+        local_only=False,
+    )
+
     _LOGGER.info("Dial-a-Story initialized successfully")
     return True
+
+
+async def handle_audio_webhook(
+    hass: HomeAssistant, webhook_id: str, request
+) -> None:
+    """Serve cached audio files to Telnyx."""
+    from aiohttp import web
+
+    audio_id = request.query.get("id")
+    if not audio_id or audio_id not in hass.data[DOMAIN]["audio_cache"]:
+        return web.Response(status=404)
+
+    audio_bytes = hass.data[DOMAIN]["audio_cache"][audio_id]
+    return web.Response(
+        body=audio_bytes,
+        content_type="audio/mpeg",
+        headers={"Content-Length": str(len(audio_bytes))},
+    )
 
 
 async def handle_webhook(
@@ -120,7 +158,7 @@ async def handle_webhook(
             await handler.handle_call_initiated(payload)
         elif event_type == "call.answered":
             await handler.handle_call_answered(payload)
-        elif event_type == "call.speak.ended":
+        elif event_type in ("call.speak.ended", "call.playback.ended"):
             await handler.handle_speak_ended(payload)
         elif event_type == "call.gather.ended":
             await handler.handle_gather_ended(payload)
@@ -320,24 +358,80 @@ class _CallHandler:
 
     async def _speak_on_call(self, call_control_id: str, text: str, pause: int = 0):
         """Convert text to speech on active call."""
+        elevenlabs_key = self.hass.data[DOMAIN].get("elevenlabs_api_key")
+
+        if elevenlabs_key:
+            try:
+                await self._speak_elevenlabs(call_control_id, text)
+                return
+            except Exception as e:
+                _LOGGER.warning(f"ElevenLabs TTS failed: {e}, falling back to Telnyx")
+
         voice_pref = self.hass.data[DOMAIN]["voice_preference"]
-
-        voice_map = {
-            "female": "female",
-            "male": "male",
-        }
-
         await self._telnyx_api_call(
             f"/v2/calls/{call_control_id}/actions/speak",
             {
                 "payload": text,
-                "voice": voice_map.get(voice_pref, "female"),
+                "voice": voice_pref,
                 "language": "en-US",
             }
         )
 
-        if pause > 0:
-            await asyncio.sleep(pause / 1000)
+    async def _speak_elevenlabs(self, call_control_id: str, text: str):
+        """Generate speech via ElevenLabs and play on call."""
+        session = async_get_clientsession(self.hass)
+        api_key = self.hass.data[DOMAIN]["elevenlabs_api_key"]
+        voice_pref = self.hass.data[DOMAIN]["voice_preference"]
+        voice_id = ELEVENLABS_VOICES.get(voice_pref, ELEVENLABS_VOICES["female"])
+
+        response = await session.post(
+            f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}",
+            headers={
+                "xi-api-key": api_key,
+                "Content-Type": "application/json",
+                "Accept": "audio/mpeg",
+            },
+            json={
+                "text": text,
+                "model_id": "eleven_multilingual_v2",
+                "voice_settings": {
+                    "stability": 0.6,
+                    "similarity_boost": 0.75,
+                    "style": 0.1,
+                },
+            },
+        )
+
+        if response.status != 200:
+            error_text = await response.text()
+            raise RuntimeError(f"ElevenLabs API error: {response.status} - {error_text}")
+
+        audio_bytes = await response.read()
+        audio_id = hashlib.md5(f"{text}{time.time()}".encode()).hexdigest()
+
+        self.hass.data[DOMAIN]["audio_cache"][audio_id] = audio_bytes
+
+        try:
+            external_url = get_url(
+                self.hass, prefer_cloud=True, allow_internal=False
+            )
+        except NoURLAvailableError:
+            external_url = get_url(self.hass, prefer_external=True)
+
+        audio_url = f"{external_url}/api/webhook/{WEBHOOK_ID_AUDIO}?id={audio_id}"
+        _LOGGER.debug(f"Playing audio from {audio_url}")
+
+        await self._telnyx_api_call(
+            f"/v2/calls/{call_control_id}/actions/playback_start",
+            {"audio_url": audio_url}
+        )
+
+        # Clean up old cache entries (keep last 10)
+        cache = self.hass.data[DOMAIN]["audio_cache"]
+        if len(cache) > 10:
+            oldest_keys = list(cache.keys())[:-10]
+            for key in oldest_keys:
+                del cache[key]
 
     async def _hangup_call(self, call_control_id: str):
         """Hang up the call."""
