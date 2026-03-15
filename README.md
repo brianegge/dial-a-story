@@ -1,5 +1,7 @@
 # 📖 Dial-a-Story
 
+[![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
+
 **AI-powered bedtime stories hotline for kids ages 2-5**
 
 Give your toddler a phone number they can call anytime to hear a fresh, AI-generated bedtime story! Works with Home Assistant, Telnyx, and optional OpenAI integration.
