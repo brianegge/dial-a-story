@@ -7,6 +7,8 @@ CONF_TELNYX_API_KEY = "telnyx_api_key"
 CONF_ELEVENLABS_API_KEY = "elevenlabs_api_key"
 CONF_STORY_LENGTH = "story_length"
 CONF_VOICE_PREFERENCE = "voice_preference"
+SERVICE_SET_STORY = "set_story"
+SERVICE_CLEAR_STORY = "clear_story"
 
 # ElevenLabs voice IDs
 ELEVENLABS_VOICES = {
