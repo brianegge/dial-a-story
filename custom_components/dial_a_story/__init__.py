@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import homeassistant.helpers.config_validation as cv
+import voluptuous as vol
 from homeassistant.components import webhook
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -31,6 +32,8 @@ from .const import (
     CONF_VOICE_PREFERENCE,
     DOMAIN,
     ELEVENLABS_VOICES,
+    SERVICE_CLEAR_STORY,
+    SERVICE_SET_STORY,
     WEBHOOK_ID,
     WEBHOOK_ID_AUDIO,
 )
@@ -86,6 +89,7 @@ class DialAStoryData:
     elevenlabs_api_key: str | None
     story_length: str
     voice_preference: str
+    queued_story: str | None = None
     active_calls: dict[str, dict[str, Any]] = field(default_factory=dict)
     audio_cache: dict[str, bytes] = field(default_factory=dict)
 
@@ -142,6 +146,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: DialAStoryConfigEntry) -
         local_only=False,
     )
 
+    async def handle_set_story(call) -> None:
+        """Handle set_story service call."""
+        story_text = call.data["story"]
+        entry.runtime_data.queued_story = story_text
+        _LOGGER.info("Story queued for next call (%d chars)", len(story_text))
+
+    async def handle_clear_story(call) -> None:
+        """Handle clear_story service call."""
+        entry.runtime_data.queued_story = None
+        _LOGGER.info("Queued story cleared")
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_SET_STORY,
+        handle_set_story,
+        schema=vol.Schema({vol.Required("story"): cv.string}),
+    )
+    hass.services.async_register(DOMAIN, SERVICE_CLEAR_STORY, handle_clear_story)
+
     _LOGGER.info("Dial-a-Story initialized successfully")
     return True
 
@@ -153,6 +176,8 @@ async def async_unload_entry(
     """Unload a Dial-a-Story config entry."""
     webhook.async_unregister(hass, WEBHOOK_ID)
     webhook.async_unregister(hass, WEBHOOK_ID_AUDIO)
+    hass.services.async_remove(DOMAIN, SERVICE_SET_STORY)
+    hass.services.async_remove(DOMAIN, SERVICE_CLEAR_STORY)
     return True
 
 
@@ -315,7 +340,13 @@ class _CallHandler:
         await self._speak_on_call(call_control_id, story, pause=500)
 
     async def _generate_story(self) -> str:
-        """Generate a story using HA ai_task service or use backup."""
+        """Return queued story if set, otherwise generate via AI or backup."""
+        if self._data.queued_story:
+            story = self._data.queued_story
+            self._data.queued_story = None
+            _LOGGER.info("Using queued story (%d chars)", len(story))
+            return story
+
         try:
             return await self._generate_story_ai_task()
         except Exception as e:

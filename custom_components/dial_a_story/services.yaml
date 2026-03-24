@@ -1,0 +1,16 @@
+set_story:
+  name: Set story
+  description: Queue a story to be read on the next phone call. The story is consumed after one use.
+  fields:
+    story:
+      name: Story
+      description: The full text of the story to read.
+      required: true
+      example: "Once upon a time, a little bear found a cozy cave and fell fast asleep. Sweet dreams, little one!"
+      selector:
+        text:
+          multiline: true
+
+clear_story:
+  name: Clear story
+  description: Remove the queued story so the next call uses AI-generated stories instead.
