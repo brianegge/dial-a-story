@@ -18,10 +18,11 @@ from typing import TYPE_CHECKING, Any
 
 import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
+from aiohttp import web
 from homeassistant.components import webhook
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.network import NoURLAvailableError, get_url
 
@@ -100,7 +101,7 @@ if TYPE_CHECKING:
 
 async def async_setup_entry(hass: HomeAssistant, entry: DialAStoryConfigEntry) -> bool:
     """Set up Dial-a-Story from a config entry."""
-    telnyx_api_key = entry.data[CONF_TELNYX_API_KEY]
+    telnyx_api_key: str = entry.data[CONF_TELNYX_API_KEY]
 
     # test-before-setup: validate Telnyx API key
     session = async_get_clientsession(hass)
@@ -119,11 +120,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: DialAStoryConfigEntry) -
     except Exception as err:
         raise ConfigEntryNotReady(f"Error connecting to Telnyx API: {err}") from err
 
+    elevenlabs_key: str | None = entry.data.get(CONF_ELEVENLABS_API_KEY) or None
+
     entry.runtime_data = DialAStoryData(
         telnyx_api_key=telnyx_api_key,
-        elevenlabs_api_key=entry.data.get(CONF_ELEVENLABS_API_KEY) or None,
-        story_length=entry.data.get(CONF_STORY_LENGTH, "medium"),
-        voice_preference=entry.data.get(CONF_VOICE_PREFERENCE, "female"),
+        elevenlabs_api_key=elevenlabs_key,
+        story_length=str(entry.data.get(CONF_STORY_LENGTH, "medium")),
+        voice_preference=str(entry.data.get(CONF_VOICE_PREFERENCE, "female")),
     )
 
     webhook.async_register(
@@ -146,13 +149,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: DialAStoryConfigEntry) -
         local_only=False,
     )
 
-    async def handle_set_story(call) -> None:
+    async def handle_set_story(call: ServiceCall) -> None:
         """Handle set_story service call."""
-        story_text = call.data["story"]
-        entry.runtime_data.queued_story = story_text
+        story_text: str = call.data["story"]
+        if not story_text or not story_text.strip():
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="story_text_empty",
+            )
+        entry.runtime_data.queued_story = story_text.strip()
         _LOGGER.info("Story queued for next call (%d chars)", len(story_text))
 
-    async def handle_clear_story(call) -> None:
+    async def handle_clear_story(call: ServiceCall) -> None:
         """Handle clear_story service call."""
         entry.runtime_data.queued_story = None
         _LOGGER.info("Queued story cleared")
@@ -171,7 +179,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: DialAStoryConfigEntry) -
 
 async def async_unload_entry(
     hass: HomeAssistant,
-    entry: DialAStoryConfigEntry,  # NOSONAR - entry param and async required by HA API
+    entry: DialAStoryConfigEntry,
 ) -> bool:
     """Unload a Dial-a-Story config entry."""
     webhook.async_unregister(hass, WEBHOOK_ID)
@@ -186,15 +194,14 @@ def _get_runtime_data(hass: HomeAssistant) -> DialAStoryData:
     entries = hass.config_entries.async_entries(DOMAIN)
     if not entries:
         raise RuntimeError("Dial-a-Story is not configured")
-    return entries[0].runtime_data
+    data: DialAStoryData = entries[0].runtime_data
+    return data
 
 
-async def handle_audio_webhook(  # NOSONAR - async required by HA webhook API
-    hass: HomeAssistant, webhook_id: str, request
-) -> None:
+async def handle_audio_webhook(
+    hass: HomeAssistant, webhook_id: str, request: web.Request
+) -> web.Response:
     """Serve cached audio files to Telnyx."""
-    from aiohttp import web
-
     audio_id = request.query.get("id")
     data = _get_runtime_data(hass)
     if not audio_id or audio_id not in data.audio_cache:
@@ -208,16 +215,16 @@ async def handle_audio_webhook(  # NOSONAR - async required by HA webhook API
     )
 
 
-async def handle_webhook(hass: HomeAssistant, webhook_id: str, request) -> None:
+async def handle_webhook(
+    hass: HomeAssistant, webhook_id: str, request: web.Request
+) -> web.Response:
     """Handle incoming webhook from Telnyx."""
-    from aiohttp import web
-
     try:
         data = await request.json()
-        event_type = data.get("data", {}).get("event_type")
-        payload = data.get("data", {}).get("payload", {})
+        event_type: str = data.get("data", {}).get("event_type", "")
+        payload: dict[str, Any] = data.get("data", {}).get("payload", {})
 
-        _LOGGER.info(f"Received Telnyx event: {event_type}")
+        _LOGGER.info("Received Telnyx event: %s", event_type)
 
         handler = _CallHandler(hass)
 
@@ -235,23 +242,27 @@ async def handle_webhook(hass: HomeAssistant, webhook_id: str, request) -> None:
         return web.json_response({"status": "ok"})
 
     except Exception as e:
-        _LOGGER.error(f"Error handling webhook: {e}", exc_info=True)
-        return web.json_response({"status": "error", "message": str(e)}, status=500)
+        _LOGGER.error("Error handling webhook: %s", e, exc_info=True)
+        return web.json_response(
+            {"status": "error", "message": str(e)}, status=500
+        )
 
 
 class _CallHandler:
     """Handle Telnyx call events."""
 
-    def __init__(self, hass: HomeAssistant):
+    def __init__(self, hass: HomeAssistant) -> None:
         self.hass = hass
         self._data = _get_runtime_data(hass)
 
-    async def handle_call_initiated(self, payload: dict[str, Any]):
+    async def handle_call_initiated(self, payload: dict[str, Any]) -> None:
         """Handle when a new call comes in."""
-        call_control_id = payload.get("call_control_id")
+        call_control_id: str = str(payload.get("call_control_id", ""))
         from_number = payload.get("from")
 
-        _LOGGER.info(f"New call from {from_number}, control_id: {call_control_id}")
+        _LOGGER.info(
+            "New call from %s, control_id: %s", from_number, call_control_id
+        )
 
         self._data.active_calls[call_control_id] = {
             "from": from_number,
@@ -259,11 +270,13 @@ class _CallHandler:
             "state": "initiated",
         }
 
-        await self._telnyx_api_call(f"/v2/calls/{call_control_id}/actions/answer", {})
+        await self._telnyx_api_call(
+            f"/v2/calls/{call_control_id}/actions/answer", {}
+        )
 
-    async def handle_call_answered(self, payload: dict[str, Any]):
+    async def handle_call_answered(self, payload: dict[str, Any]) -> None:
         """Handle when call is answered - play greeting."""
-        call_control_id = payload.get("call_control_id")
+        call_control_id: str = str(payload.get("call_control_id", ""))
 
         call_state = self._data.active_calls.get(call_control_id)
         if not call_state:
@@ -278,9 +291,9 @@ class _CallHandler:
 
         await self._speak_on_call(call_control_id, greeting)
 
-    async def handle_speak_ended(self, payload: dict[str, Any]):
+    async def handle_speak_ended(self, payload: dict[str, Any]) -> None:
         """Handle when TTS finishes speaking."""
-        call_control_id = payload.get("call_control_id")
+        call_control_id: str = str(payload.get("call_control_id", ""))
 
         call_state = self._data.active_calls.get(call_control_id)
         if not call_state:
@@ -299,10 +312,10 @@ class _CallHandler:
         elif current_state == "offering_another":
             await self._say_goodbye(call_control_id)
 
-    async def handle_gather_ended(self, payload: dict[str, Any]):
+    async def handle_gather_ended(self, payload: dict[str, Any]) -> None:
         """Handle DTMF input (key press) from caller."""
-        call_control_id = payload.get("call_control_id")
-        digits = payload.get("digits", "")
+        call_control_id: str = str(payload.get("call_control_id", ""))
+        digits: str = str(payload.get("digits", ""))
 
         call_state = self._data.active_calls.get(call_control_id)
         if not call_state:
@@ -314,27 +327,36 @@ class _CallHandler:
 
             if call_state["story_count"] >= 3:
                 await self._speak_on_call(
-                    call_control_id, "You've had three wonderful stories tonight! Time to rest now. Sweet dreams!"
+                    call_control_id,
+                    "You've had three wonderful stories tonight! "
+                    "Time to rest now. Sweet dreams!",
                 )
                 await asyncio.sleep(3)
                 await self._hangup_call(call_control_id)
             else:
-                await self._speak_on_call(call_control_id, "Wonderful! Here's another story for you!")
+                await self._speak_on_call(
+                    call_control_id,
+                    "Wonderful! Here's another story for you!",
+                )
                 await asyncio.sleep(1)
                 await self._tell_story(call_control_id)
         else:
             await self._say_goodbye(call_control_id)
 
-    async def handle_call_hangup(self, payload: dict[str, Any]):  # NOSONAR - async required by HA API
+    async def handle_call_hangup(self, payload: dict[str, Any]) -> None:
         """Handle call ending."""
-        call_control_id = payload.get("call_control_id")
+        call_control_id: str = str(payload.get("call_control_id", ""))
 
         if call_control_id in self._data.active_calls:
             call_info = self._data.active_calls[call_control_id]
-            _LOGGER.info(f"Call ended from {call_info.get('from')}, told {call_info.get('story_count', 0)} stories")
+            _LOGGER.info(
+                "Call ended from %s, told %d stories",
+                call_info.get("from"),
+                call_info.get("story_count", 0),
+            )
             del self._data.active_calls[call_control_id]
 
-    async def _tell_story(self, call_control_id: str):
+    async def _tell_story(self, call_control_id: str) -> None:
         """Generate and tell a bedtime story."""
         story = await self._generate_story()
         await self._speak_on_call(call_control_id, story, pause=500)
@@ -350,14 +372,18 @@ class _CallHandler:
         try:
             return await self._generate_story_ai_task()
         except Exception as e:
-            _LOGGER.warning(f"AI task story generation failed: {e}, using backup")
+            _LOGGER.warning("AI task story generation failed: %s, using backup", e)
 
         return random.choice(BACKUP_STORIES).strip()
 
     async def _generate_story_ai_task(self) -> str:
         """Generate story using Home Assistant's ai_task service."""
         story_length = self._data.story_length
-        word_counts = {"short": 200, "medium": 350, "long": 500}
+        word_counts: dict[str, int] = {
+            "short": 200,
+            "medium": 350,
+            "long": 500,
+        }
         max_words = word_counts[story_length]
 
         theme = random.choice(STORY_THEMES)
@@ -373,21 +399,22 @@ class _CallHandler:
             f"Return only the story text, no titles or headers."
         )
 
-        result = await self.hass.services.async_call(
+        raw_result = await self.hass.services.async_call(
             "ai_task",
             "generate_data",
             {"task_name": "generate_story", "instructions": instructions},
             blocking=True,
             return_response=True,
         )
+        result: dict[str, Any] = dict(raw_result) if raw_result else {}
 
-        story = result.get("data", "")
+        story: str = str(result.get("data", "") or "")
         if not story:
             raise ValueError("ai_task returned empty response")
 
         return story.strip()
 
-    async def _offer_another_story(self, call_control_id: str):
+    async def _offer_another_story(self, call_control_id: str) -> None:
         """Ask if they want another story."""
         message = (
             "Would you like to hear another story? "
@@ -406,9 +433,12 @@ class _CallHandler:
             },
         )
 
-    async def _say_goodbye(self, call_control_id: str):
+    async def _say_goodbye(self, call_control_id: str) -> None:
         """Say goodbye and hang up."""
-        goodbye = "Sleep tight, little one! Dial-a-Story will be here whenever you need a bedtime story. Sweet dreams!"
+        goodbye = (
+            "Sleep tight, little one! Dial-a-Story will be here whenever "
+            "you need a bedtime story. Sweet dreams!"
+        )
 
         await self._speak_on_call(call_control_id, goodbye)
         await asyncio.sleep(3)
@@ -418,15 +448,17 @@ class _CallHandler:
         self,
         call_control_id: str,
         text: str,
-        pause: int = 0,  # NOSONAR - pause param reserved for future use
-    ):
+        pause: int = 0,
+    ) -> None:
         """Convert text to speech on active call."""
         if self._data.elevenlabs_api_key:
             try:
                 await self._speak_elevenlabs(call_control_id, text)
                 return
             except Exception as e:
-                _LOGGER.warning(f"ElevenLabs TTS failed: {e}, falling back to Telnyx")
+                _LOGGER.warning(
+                    "ElevenLabs TTS failed: %s, falling back to Telnyx", e
+                )
 
         voice_pref = self._data.voice_preference
         await self._telnyx_api_call(
@@ -438,10 +470,15 @@ class _CallHandler:
             },
         )
 
-    async def _speak_elevenlabs(self, call_control_id: str, text: str):
+    async def _speak_elevenlabs(
+        self, call_control_id: str, text: str
+    ) -> None:
         """Generate speech via ElevenLabs and play on call."""
         session = async_get_clientsession(self.hass)
         api_key = self._data.elevenlabs_api_key
+        if not api_key:
+            raise HomeAssistantError("ElevenLabs API key not configured")
+
         voice_pref = self._data.voice_preference
         voice_id = ELEVENLABS_VOICES.get(voice_pref, ELEVENLABS_VOICES["female"])
 
@@ -465,22 +502,35 @@ class _CallHandler:
 
         if response.status != 200:
             error_text = await response.text()
-            raise RuntimeError(f"ElevenLabs API error: {response.status} - {error_text}")
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="elevenlabs_api_error",
+                translation_placeholders={"error": error_text},
+            )
 
         audio_bytes = await response.read()
-        audio_id = hashlib.md5(f"{text}{time.time()}".encode()).hexdigest()
+        audio_id = hashlib.md5(
+            f"{text}{time.time()}".encode()
+        ).hexdigest()
 
         self._data.audio_cache[audio_id] = audio_bytes
 
         try:
-            external_url = get_url(self.hass, prefer_cloud=True, allow_internal=False)
+            external_url = get_url(
+                self.hass, prefer_cloud=True, allow_internal=False
+            )
         except NoURLAvailableError:
             external_url = get_url(self.hass, prefer_external=True)
 
-        audio_url = f"{external_url}/api/webhook/{WEBHOOK_ID_AUDIO}?id={audio_id}"
-        _LOGGER.debug(f"Playing audio from {audio_url}")
+        audio_url = (
+            f"{external_url}/api/webhook/{WEBHOOK_ID_AUDIO}?id={audio_id}"
+        )
+        _LOGGER.debug("Playing audio from %s", audio_url)
 
-        await self._telnyx_api_call(f"/v2/calls/{call_control_id}/actions/playback_start", {"audio_url": audio_url})
+        await self._telnyx_api_call(
+            f"/v2/calls/{call_control_id}/actions/playback_start",
+            {"audio_url": audio_url},
+        )
 
         # Clean up old cache entries (keep last 10)
         cache = self._data.audio_cache
@@ -489,11 +539,15 @@ class _CallHandler:
             for key in oldest_keys:
                 del cache[key]
 
-    async def _hangup_call(self, call_control_id: str):
+    async def _hangup_call(self, call_control_id: str) -> None:
         """Hang up the call."""
-        await self._telnyx_api_call(f"/v2/calls/{call_control_id}/actions/hangup", {})
+        await self._telnyx_api_call(
+            f"/v2/calls/{call_control_id}/actions/hangup", {}
+        )
 
-    async def _telnyx_api_call(self, endpoint: str, payload: dict[str, Any]):
+    async def _telnyx_api_call(
+        self, endpoint: str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
         """Make API call to Telnyx."""
         session = async_get_clientsession(self.hass)
         api_key = self._data.telnyx_api_key
@@ -512,10 +566,13 @@ class _CallHandler:
 
             if response.status != 200:
                 error_text = await response.text()
-                _LOGGER.error(f"Telnyx API error: {response.status} - {error_text}")
+                _LOGGER.error(
+                    "Telnyx API error: %s - %s", response.status, error_text
+                )
 
-            return await response.json()
+            result: dict[str, Any] = await response.json()
+            return result
 
         except Exception as e:
-            _LOGGER.error(f"Error calling Telnyx API {endpoint}: {e}")
+            _LOGGER.error("Error calling Telnyx API %s: %s", endpoint, e)
             raise

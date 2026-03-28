@@ -16,6 +16,34 @@
           "story_length": "Length of generated stories: short (~200 words), medium (~350), or long (~500)",
           "voice_preference": "Voice gender for text-to-speech"
         }
+      },
+      "reauth_confirm": {
+        "title": "Re-authenticate Dial-a-Story",
+        "description": "Your API credentials are no longer valid. Please provide updated keys.",
+        "data": {
+          "telnyx_api_key": "Telnyx API key",
+          "elevenlabs_api_key": "ElevenLabs API key (optional)"
+        },
+        "data_description": {
+          "telnyx_api_key": "Updated API key from your Telnyx portal",
+          "elevenlabs_api_key": "Optional updated API key for ElevenLabs voices"
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure Dial-a-Story",
+        "description": "Update your Dial-a-Story configuration.",
+        "data": {
+          "telnyx_api_key": "Telnyx API key",
+          "elevenlabs_api_key": "ElevenLabs API key (optional)",
+          "story_length": "Story length",
+          "voice_preference": "Voice preference"
+        },
+        "data_description": {
+          "telnyx_api_key": "API key from your Telnyx portal",
+          "elevenlabs_api_key": "Optional API key for natural-sounding ElevenLabs voices",
+          "story_length": "Length of generated stories: short (~200 words), medium (~350), or long (~500)",
+          "voice_preference": "Voice gender for text-to-speech"
+        }
       }
     },
     "error": {
@@ -24,7 +52,36 @@
       "unknown": "An unexpected error occurred."
     },
     "abort": {
-      "already_configured": "Dial-a-Story is already configured."
+      "already_configured": "Dial-a-Story is already configured.",
+      "reauth_successful": "Re-authentication was successful.",
+      "reconfigure_successful": "Reconfiguration was successful."
+    }
+  },
+  "exceptions": {
+    "story_text_empty": {
+      "message": "Story text cannot be empty."
+    },
+    "telnyx_api_error": {
+      "message": "Error communicating with Telnyx API: {error}"
+    },
+    "elevenlabs_api_error": {
+      "message": "Error communicating with ElevenLabs API: {error}"
+    }
+  },
+  "services": {
+    "set_story": {
+      "name": "Set story",
+      "description": "Queue a story to be read on the next phone call.",
+      "fields": {
+        "story": {
+          "name": "Story",
+          "description": "The full text of the story to read."
+        }
+      }
+    },
+    "clear_story": {
+      "name": "Clear story",
+      "description": "Remove the queued story so the next call uses AI-generated stories."
     }
   }
 }

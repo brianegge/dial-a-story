@@ -2,7 +2,10 @@ rules:
   # Bronze
   action-setup:
     status: exempt
-    comment: This integration does not provide additional actions.
+    comment: |
+      This integration registers set_story/clear_story services in
+      async_setup_entry, which is the standard pattern for integrations
+      that only have config-entry-scoped actions.
   appropriate-polling:
     status: exempt
     comment: This integration uses cloud_push (webhooks), no polling.
@@ -13,7 +16,9 @@ rules:
   dependency-transparency: done
   docs-actions:
     status: exempt
-    comment: This integration does not provide additional actions.
+    comment: |
+      This integration provides set_story/clear_story services
+      documented in services.yaml and README.
   docs-high-level-description: done
   docs-installation-instructions: done
   docs-removal-instructions: done
@@ -30,3 +35,91 @@ rules:
   test-before-configure: done
   test-before-setup: done
   unique-config-entry: done
+
+  # Silver
+  action-exceptions: done
+  config-entry-unloading: done
+  docs-configuration-parameters: done
+  docs-installation-parameters: done
+  entity-unavailable:
+    status: exempt
+    comment: This integration does not expose entities.
+  integration-owner: done
+  log-when-unavailable:
+    status: exempt
+    comment: |
+      This integration is cloud_push (webhook-based). It does not poll
+      or maintain a persistent connection to monitor.
+  parallel-updates:
+    status: exempt
+    comment: This integration does not expose entity platforms.
+  reauthentication-flow: done
+  test-coverage: done
+
+  # Gold
+  devices:
+    status: exempt
+    comment: |
+      This integration is a cloud service (Telnyx telephony + AI stories).
+      It does not represent a physical device; it handles incoming phone
+      calls via webhooks.
+  diagnostics: done
+  discovery-update-info:
+    status: exempt
+    comment: This integration is cloud-based and not discoverable on the network.
+  discovery:
+    status: exempt
+    comment: |
+      This integration connects to cloud APIs (Telnyx, ElevenLabs)
+      and is not discoverable on the local network.
+  docs-data-update:
+    status: exempt
+    comment: |
+      Data is pushed via Telnyx webhooks; there is no periodic data
+      update mechanism.
+  docs-examples: done
+  docs-known-limitations: done
+  docs-supported-devices:
+    status: exempt
+    comment: This integration is a cloud service, not a device integration.
+  docs-supported-functions: done
+  docs-troubleshooting: done
+  docs-use-cases: done
+  dynamic-devices:
+    status: exempt
+    comment: This integration does not create devices.
+  entity-category:
+    status: exempt
+    comment: This integration does not expose entities.
+  entity-device-class:
+    status: exempt
+    comment: This integration does not expose entities.
+  entity-disabled-by-default:
+    status: exempt
+    comment: This integration does not expose entities.
+  entity-translations:
+    status: exempt
+    comment: This integration does not expose entities.
+  exception-translations: done
+  icon-translations:
+    status: exempt
+    comment: This integration does not expose entities.
+  reconfiguration-flow: done
+  repair-issues:
+    status: exempt
+    comment: |
+      This integration uses ConfigEntryNotReady for setup failures
+      and reauthentication flow for credential issues. No additional
+      repair issues are needed.
+  stale-devices:
+    status: exempt
+    comment: This integration does not create devices.
+
+  # Platinum
+  async-dependency:
+    status: done
+    comment: |
+      All dependencies (aiohttp, homeassistant) are fully async.
+      No synchronous blocking libraries are used.
+  inject-websession: done
+  strict-typing: done
