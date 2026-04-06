@@ -47,38 +47,37 @@ CONTENT_TYPE_JSON = "application/json"
 
 # Story themes appropriate for 2-5 year olds
 STORY_THEMES = [
-    "a friendly dinosaur who loves to share toys",
-    "a magical train that visits the moon and stars",
-    "a brave little bunny exploring a beautiful garden",
-    "a silly elephant who can't stop sneezing bubbles",
-    "a kind robot who helps animals find their way home",
-    "a curious kitten's first adventure outside",
-    "a gentle whale who sings lullabies to fish",
-    "a happy cloud that makes rainbow rain",
-    "a sleepy teddy bear finding the perfect bedtime",
-    "a tiny firefly making friends in the forest",
+    "Chloe and a friendly dinosaur who loves to share toys",
+    "Chloe riding a magical train that visits the moon and stars",
+    "Chloe and a brave little bunny exploring a beautiful garden",
+    "Chloe meeting a silly elephant who can't stop sneezing bubbles",
+    "Chloe and a kind robot who helps animals find their way home",
+    "Chloe and a curious kitten on their first adventure outside",
+    "Chloe and a gentle whale who sings lullabies to fish",
+    "Chloe and a happy cloud that makes rainbow rain",
+    "Chloe and a sleepy teddy bear finding the perfect bedtime",
+    "Chloe and a tiny firefly making friends in the forest",
 ]
 
 # Backup stories in case LLM is unavailable
 BACKUP_STORIES = [
-    """Once upon a time, the moon was very sleepy. All day long, the moon watched
-    the sun play in the sky. 'I want to play too!' said the moon. But the sun smiled
-    and said, 'Moon, you have the most important job. You watch over all the children
-    while they sleep and keep them safe with your gentle light.' The moon felt so proud!
-    That night, the moon shone brightly and sang a soft lullaby to all the sleeping
-    children. And everyone slept peacefully. Sweet dreams, little one!""",
-    """In a cozy garden, there lived a little bunny named Benny. Benny loved to hop
-    and play, but sometimes the garden seemed big at night. One evening, Benny's mama
-    said, 'Benny, you are so brave!' Benny didn't feel brave. But then he heard a tiny
-    voice - it was a little firefly! 'I'm scared of the dark,' the firefly said. Benny
-    held the firefly's little hand. Together they weren't scared anymore. They became
-    best friends and always helped each other feel brave. Sweet dreams, little one!""",
-    """There was once a kind little cloud named Fluffy. Fluffy loved to float in the
-    sky and watch the children play below. One day, Fluffy wanted to help the flowers
-    grow, so she made the gentlest, softest rain. The flowers danced and said 'Thank you!'
-    Then Fluffy made a beautiful rainbow! All the animals came out to see it. They said,
-    'Fluffy, you're the best cloud ever!' And Fluffy smiled and floated happily in the
-    sky. Sweet dreams, little one!""",
+    """Once upon a time, Chloe looked up at the sky and saw the moon. 'Hello, moon!'
+    said Chloe. The moon smiled down at her. 'Hello, Chloe! I have the most important
+    job. I watch over you while you sleep and keep you safe with my gentle light.'
+    Chloe smiled and waved. That night, the moon shone brightly and sang a soft lullaby
+    just for Chloe. And Chloe slept so peacefully. Sweet dreams, Chloe!""",
+    """In a cozy garden, Chloe met a little bunny named Benny. 'Want to hop with me?'
+    asked Benny. Chloe and Benny hopped and played together. When it got dark, they
+    heard a tiny voice - it was a little firefly! 'I'm scared of the dark,' the firefly
+    said. Chloe held the firefly's little hand. 'Don't be scared! We're here!' said
+    Chloe. Together they weren't scared anymore. Chloe, Benny, and the firefly became
+    best friends. Sweet dreams, Chloe!""",
+    """There was once a kind little cloud named Fluffy. One day, Fluffy floated over
+    Chloe's house. 'Hi Fluffy!' said Chloe. Fluffy wanted to help the flowers grow,
+    so she made the gentlest, softest rain. The flowers danced and Chloe danced too!
+    Then Fluffy made a beautiful rainbow just for Chloe! All the animals came out to
+    see it. 'Thank you, Fluffy!' said Chloe. And Fluffy smiled and floated happily
+    in the sky. Sweet dreams, Chloe!""",
 ]
 
 
@@ -390,12 +389,13 @@ class _CallHandler:
 
         instructions = (
             f"You are a gentle, warm storyteller creating bedtime stories "
-            f"for children aged 2-5 years old. "
+            f"for a 2-and-a-half-year-old girl named Chloe. "
             f"Create a soothing {max_words}-word bedtime story about {theme}. "
+            f"Use Chloe's name throughout the story so she feels like the hero. "
             f"Use simple vocabulary, include repetition and rhythm, "
             f"focus on comforting happy themes with no scary elements. "
             f"Use simple words, soft sounds, and a happy ending where everyone is safe. "
-            f"Always end with 'Sweet dreams, little one!' "
+            f"Always end with 'Sweet dreams, Chloe!' "
             f"Return only the story text, no titles or headers."
         )
 

@@ -623,8 +623,8 @@ async def test_generate_story_ai_fallback_to_backup(
     ):
         story = await handler._generate_story()
 
-    # Should return a backup story (all end with "Sweet dreams, little one!")
-    assert "Sweet dreams, little one!" in story
+    # Should return a backup story (all end with "Sweet dreams, Chloe!")
+    assert "Sweet dreams, Chloe!" in story
 
 
 async def test_generate_story_ai_task_success(
