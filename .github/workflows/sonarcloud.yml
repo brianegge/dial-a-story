@@ -23,5 +23,5 @@ jobs:
       - name: Run tests with coverage
         run: pytest --cov=custom_components.dial_a_story --cov-report=xml tests/
         continue-on-error: true
-      - uses: SonarSource/sonarqube-scan-action@v7
+      - uses: SonarSource/sonarqube-scan-action@v8
         if: ${{ env.SONAR_TOKEN != '' }}
